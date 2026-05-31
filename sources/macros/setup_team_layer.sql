@@ -19,10 +19,17 @@
 
     -- 4. Droits de lecture sur les schémas de l'équipe
     {% set team_schemas = ['BRONZE_MI_' ~ team_name, 'SILVER_MI_' ~ team_name, 'SILVER_' ~ team_name, 'GOLD_' ~ team_name] %}
+    {% set object_types = ['TABLES', 'VIEWS', 'MATERIALIZED VIEWS', 'DYNAMIC TABLES', 'EXTERNAL TABLES'] %}
 
     {% for sch in team_schemas %}
+        -- Accès au conteneur (schéma)
         grant usage on schema BIKESHARE{{env_suffix}}.{{sch}} to role BIKESHARE_{{team_name}}_READER{{env_suffix}};
-        grant select on all tables in schema BIKESHARE{{env_suffix}}.{{sch}} to role BIKESHARE_{{team_name}}_READER{{env_suffix}};
+
+        -- Accès aux objets (Existants et Futurs)
+        {% for obj in object_types %}
+            grant select on all {{obj}} in schema BIKESHARE{{env_suffix}}.{{sch}} to role BIKESHARE_{{team_name}}_READER{{env_suffix}};
+            grant select on future {{obj}} in schema BIKESHARE{{env_suffix}}.{{sch}} to role BIKESHARE_{{team_name}}_READER{{env_suffix}};
+        {% endfor %}
     {% endfor %}
 
 {% endmacro %}
