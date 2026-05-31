@@ -18,6 +18,7 @@ targets:
 
 templating:
   defaults:
+    compagny: "BONCO"
     wh_size: "X-SMALL"
     sources:
       - name: "SAP"
