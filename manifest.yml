@@ -6,13 +6,13 @@ default_target: DEV
 targets:
   DEV:
     account_identifier: ONZTSKS-KPB76854
-    project_name: BONCO_INFRA_DEV
+    project_name: infra.rbac_dcm.BONCO_INFRA_DEV
     project_owner: SYSADMIN
     templating_config: DEV
 
   PROD:
     account_identifier: ONZTSKS-KPB76854
-    project_name: BONCO_INFRA_PROD
+    project_name: infra.rbac_dcm.BONCO_INFRA_PROD
     project_owner: SYSADMIN
     templating_config: PROD
 
