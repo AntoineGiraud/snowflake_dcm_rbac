@@ -5,6 +5,16 @@ Le périmètre est volontairement restreint : **DCM gère le contenant, dbt gèr
 
 ---
 
+## Mes inspirations
+
+- de snowflake
+  - blog post [intro snowflake dcm](https://www.snowflake.com/en/blog/snowflake-dcm-projects-public-preview/)
+  - [get started snowflake dcm](https://www.snowflake.com/en/developers/guides/get-started-snowflake-dcm-projects/?utm_campaign=Product&utm_content=1774386069&utm_medium=Snowflake%20Developers&utm_source=linkedin)
+- mes projets github
+  - [terraform snowflake](https://github.com/AntoineGiraud/terraform_snowflake)
+  - [streamlit snowflake démo](https://github.com/AntoineGiraud/streamlit_snowflake_demo)
+  - [dbt hypermarché](https://github.com/AntoineGiraud/dbt_hypermarche)
+
 ## 1. Qu'est-ce que Snowflake DCM ?
 
 Un méli-mélo assumé de trois outils que tu connais déjà :

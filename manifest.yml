@@ -7,13 +7,13 @@ targets:
   DEV:
     account_identifier: ONZTSKS-KPB76854
     project_name: infra.rbac_dcm.BONCO_INFRA_DEV
-    project_owner: SYSADMIN
+    project_owner: DCM_DEPLOYER
     templating_config: DEV
 
   PROD:
     account_identifier: ONZTSKS-KPB76854
     project_name: infra.rbac_dcm.BONCO_INFRA_PROD
-    project_owner: SYSADMIN
+    project_owner: DCM_DEPLOYER
     templating_config: PROD
 
 templating:
