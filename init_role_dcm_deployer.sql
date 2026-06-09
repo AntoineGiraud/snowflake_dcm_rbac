@@ -11,7 +11,7 @@
 -- données reste à dbt (cf. README §2).
 -- ============================================================================
 
-USE ROLE ACCOUNTADMIN;
+USE ROLE securityadmin;
 
 --------------------------------------------------------------------------
 -- 1. Rôle de déploiement dédié (owner des objets DCM_PROJECT)
@@ -23,6 +23,8 @@ CREATE ROLE IF NOT EXISTS DCM_DEPLOYER
 -- 2. Privilèges niveau compte requis par la DDL du projet
 --    (audit de sources/definitions/setup.sql + macros)
 --------------------------------------------------------------------------
+USE ROLE ACCOUNTADMIN;
+
 GRANT CREATE DATABASE  ON ACCOUNT TO ROLE DCM_DEPLOYER;   -- define database BONCO
 GRANT CREATE WAREHOUSE ON ACCOUNT TO ROLE DCM_DEPLOYER;   -- define warehouse *_WH (x3)
 GRANT CREATE ROLE      ON ACCOUNT TO ROLE DCM_DEPLOYER;   -- define role * (globaux + par équipe)
@@ -37,6 +39,7 @@ GRANT MANAGE GRANTS    ON ACCOUNT TO ROLE DCM_DEPLOYER;
 --------------------------------------------------------------------------
 -- 3. Schéma hôte de l'objet DCM_PROJECT (cf. manifest: infra.rbac_dcm.*)
 --------------------------------------------------------------------------
+USE ROLE sysadmin;
 CREATE DATABASE IF NOT EXISTS infra
     COMMENT = 'Objets transverses (DCM projects, métadonnées infra)';
 CREATE SCHEMA   IF NOT EXISTS infra.rbac_dcm
@@ -45,6 +48,7 @@ CREATE SCHEMA   IF NOT EXISTS infra.rbac_dcm
 --------------------------------------------------------------------------
 -- 4. Droits du déployeur sur ce schéma
 --------------------------------------------------------------------------
+USE ROLE securityadmin;
 GRANT USAGE              ON DATABASE infra          TO ROLE DCM_DEPLOYER;
 GRANT USAGE              ON SCHEMA   infra.rbac_dcm  TO ROLE DCM_DEPLOYER;
 GRANT CREATE DCM PROJECT ON SCHEMA   infra.rbac_dcm  TO ROLE DCM_DEPLOYER;  -- create/own le projet

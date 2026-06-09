@@ -3,33 +3,32 @@
 -- ==========================================
 {% macro setup_team_layer(team_name) %}
 
-    -- 1. Création du rôle reader de l'équipe
-    define role {{compagny}}_{{team_name}}_READER{{env_suffix}} comment = '🚲 Reads {{team_name}} specific data';
-    grant role {{compagny}}_{{team_name}}_READER{{env_suffix}} to role {{compagny}}_READER{{env_suffix}};
+    -- 1. Variables pour simplifier les appels
+    {% set db_prefix = compagny ~ env_suffix ~ '.' %}
+    {% set loader_role = compagny ~ '_LOADER' ~ env_suffix %}
+    {% set transformer_role = compagny ~ '_TRANSFORMER' ~ env_suffix %}
+    {% set team_reader_role = compagny ~ '_' ~ team_name ~ '_READER' ~ env_suffix %}
 
-    -- 2. Propriété : Manual Inputs et Couches Métier
-    grant ownership on schema {{compagny}}{{env_suffix}}.BRONZE_MI_{{team_name}} to role {{compagny}}_LOADER{{env_suffix}} revoke current grants;
-    grant ownership on schema {{compagny}}{{env_suffix}}.SILVER_MI_{{team_name}} to role {{compagny}}_TRANSFORMER{{env_suffix}} revoke current grants;
-    grant ownership on schema {{compagny}}{{env_suffix}}.SILVER_{{team_name}} to role {{compagny}}_TRANSFORMER{{env_suffix}} revoke current grants;
-    grant ownership on schema {{compagny}}{{env_suffix}}.GOLD_{{team_name}} to role {{compagny}}_TRANSFORMER{{env_suffix}} revoke current grants;
+    -- 2. Création du rôle reader de l'équipe
+    define role {{ team_reader_role }} comment = '🚲 Reads {{team_name}} specific data';
+    grant role {{ team_reader_role }} to role {{compagny}}_READER{{env_suffix}};
 
-    -- 3. Accès de base pour le rôle de l'équipe
-    grant usage on database {{compagny}}{{env_suffix}} to role {{compagny}}_{{team_name}}_READER{{env_suffix}};
-    grant usage on warehouse {{compagny}}_READING_WH{{env_suffix}} to role {{compagny}}_{{team_name}}_READER{{env_suffix}};
+    -- 3. Accès de base à la DB et au WH
+    grant usage on database {{compagny}}{{env_suffix}} to role {{ team_reader_role }};
+    grant usage on warehouse {{compagny}}_READING_WH{{env_suffix}} to role {{ team_reader_role }};
 
-    -- 4. Droits de lecture sur les schémas de l'équipe
+    -- 4. Attribution des droits d'ÉCRITURE via la macro Helper (remplace les ownerships)
+    {{ grant_write_on_schema(db_prefix ~ 'BRONZE_MI_' ~ team_name, loader_role, 'LOADER') }}
+
+    {{ grant_write_on_schema(db_prefix ~ 'SILVER_MI_' ~ team_name, transformer_role, 'TRANSFORMER') }}
+    {{ grant_write_on_schema(db_prefix ~ 'SILVER_' ~ team_name, transformer_role, 'TRANSFORMER') }}
+    {{ grant_write_on_schema(db_prefix ~ 'GOLD_' ~ team_name, transformer_role, 'TRANSFORMER') }}
+
+    -- 5. Attribution des droits de LECTURE via la macro Helper
     {% set team_schemas = ['BRONZE_MI_' ~ team_name, 'SILVER_MI_' ~ team_name, 'SILVER_' ~ team_name, 'GOLD_' ~ team_name] %}
-    {% set object_types = ['TABLES', 'VIEWS', 'MATERIALIZED VIEWS', 'DYNAMIC TABLES', 'EXTERNAL TABLES'] %}
 
     {% for sch in team_schemas %}
-        -- Accès au conteneur (schéma)
-        grant usage on schema {{compagny}}{{env_suffix}}.{{sch}} to role {{compagny}}_{{team_name}}_READER{{env_suffix}};
-
-        -- Accès aux objets (Existants et Futurs)
-        {% for obj in object_types %}
-            grant select on all {{obj}} in schema {{compagny}}{{env_suffix}}.{{sch}} to role {{compagny}}_{{team_name}}_READER{{env_suffix}};
-            grant select on future {{obj}} in schema {{compagny}}{{env_suffix}}.{{sch}} to role {{compagny}}_{{team_name}}_READER{{env_suffix}};
-        {% endfor %}
+        {{ grant_read_on_schema(db_prefix ~ sch, team_reader_role) }}
     {% endfor %}
 
 {% endmacro %}
