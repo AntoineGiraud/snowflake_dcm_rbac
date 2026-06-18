@@ -18,14 +18,11 @@
     grant usage on warehouse {{compagny}}_READING_WH{{env_suffix}} to role {{ team_reader_role }};
 
     -- 4. Attribution des droits d'ÉCRITURE via la macro Helper (remplace les ownerships)
-    {{ grant_write_on_schema(db_prefix ~ 'BRONZE_MI_' ~ team_name, loader_role, 'LOADER') }}
-
-    {{ grant_write_on_schema(db_prefix ~ 'SILVER_MI_' ~ team_name, transformer_role, 'TRANSFORMER') }}
     {{ grant_write_on_schema(db_prefix ~ 'SILVER_' ~ team_name, transformer_role, 'TRANSFORMER') }}
     {{ grant_write_on_schema(db_prefix ~ 'GOLD_' ~ team_name, transformer_role, 'TRANSFORMER') }}
 
     -- 5. Attribution des droits de LECTURE via la macro Helper
-    {% set team_schemas = ['BRONZE_MI_' ~ team_name, 'SILVER_MI_' ~ team_name, 'SILVER_' ~ team_name, 'GOLD_' ~ team_name] %}
+    {% set team_schemas = ['SILVER_' ~ team_name, 'GOLD_' ~ team_name] %}
 
     {% for sch in team_schemas %}
         {{ grant_read_on_schema(db_prefix ~ sch, team_reader_role) }}

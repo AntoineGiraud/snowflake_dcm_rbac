@@ -1,9 +1,11 @@
 -- ==========================================
 -- HELPER : Droits de LECTURE sur un schéma
 -- ==========================================
-{% macro grant_read_on_schema(schema_name, reader_role) %}
+{% macro grant_read_on_schema(schema_name, reader_role, grant_usage=True) %}
 
+    {% if grant_usage %}
     grant usage on schema {{ schema_name }} to role {{ reader_role }};
+    {% endif %}
 
     {% set object_types = ['TABLES', 'VIEWS', 'MATERIALIZED VIEWS', 'DYNAMIC TABLES', 'EXTERNAL TABLES'] %}
     {% for obj in object_types %}
@@ -31,6 +33,8 @@
         grant create stage on schema {{ schema_name }} to role {{ writer_role }};
         grant create file format on schema {{ schema_name }} to role {{ writer_role }};
         grant create pipe on schema {{ schema_name }} to role {{ writer_role }}; -- Utile pour Snowpipe
+
+        {{ grant_read_on_schema(schema_name, writer_role, grant_usage=False) }}
     {% endif %}
 
 {% endmacro %}

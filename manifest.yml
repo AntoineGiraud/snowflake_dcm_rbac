@@ -22,7 +22,8 @@ templating:
     wh_size: "X-SMALL"
     sources:
       - name: "SAP"
-      - name: "SF"
+      - name: "SALESFORCE"
+      - name: "MANUALINPUT"
     teams:
       - name: "CORE"
       - name: "MARKETING"

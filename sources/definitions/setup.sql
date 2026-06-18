@@ -42,8 +42,8 @@ grant usage on warehouse {{compagny}}_READING_WH{{env_suffix}} to role {{compagn
     {% set src_name = src.name | upper %}
 
     -- Création des couches Raw et Staging pour le système source
-    define schema {{compagny}}{{env_suffix}}.BRONZE_{{src_name}} comment = '🚲🥉 {{src_name}} raw data';
-    define schema {{compagny}}{{env_suffix}}.SILVER_{{src_name}} comment = '🚲🥈 {{src_name}} staging (normalized/typed)';
+    define schema {{compagny}}{{env_suffix}}.BRONZE_{{src_name}} comment = '🥉 {{src_name}} raw data';
+    define schema {{compagny}}{{env_suffix}}.SILVER_{{src_name}} comment = '🥈 {{src_name}} staging (normalized/typed)';
 
     -- Appel de la macro source
     {{ setup_source_layer(src_name) }}
@@ -56,13 +56,9 @@ grant usage on warehouse {{compagny}}_READING_WH{{env_suffix}} to role {{compagn
 {% for team in teams %}
     {% set team_name = team.name | upper %}
 
-    -- Création des Manual Inputs spécifiques à l'équipe
-    define schema {{compagny}}{{env_suffix}}.BRONZE_MI_{{team_name}} comment = '🚲🥉 Manual inputs raw for {{team_name}}';
-    define schema {{compagny}}{{env_suffix}}.SILVER_MI_{{team_name}} comment = '🚲🥈 Manual inputs staging for {{team_name}}';
-
     -- Création des couches métier de l'équipe
-    define schema {{compagny}}{{env_suffix}}.SILVER_{{team_name}} comment = '🚲🥈 Intermediate/Integration data for {{team_name}}';
-    define schema {{compagny}}{{env_suffix}}.GOLD_{{team_name}}   comment = '🚲🥇 Datamart (dim/fct) for {{team_name}}';
+    define schema {{compagny}}{{env_suffix}}.SILVER_{{team_name}} comment = '🥈 Intermediate data for {{team_name}}';
+    define schema {{compagny}}{{env_suffix}}.GOLD_{{team_name}}   comment = '🥇 Datamart (dim/fct) for {{team_name}}';
 
     -- Appel de la macro équipe
     {{ setup_team_layer(team_name) }}
