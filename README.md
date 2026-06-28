@@ -1,176 +1,103 @@
-# 🚲 BONCO — Infra & RBAC Snowflake (DCM)
+# ❄️ Snowflake DCM - RBAC & Architecture
 
-Gestion déclarative de l'**infrastructure et des droits** Snowflake via **Snowflake DCM Projects**.
-Le périmètre est volontairement restreint : **DCM gère le contenant, dbt gère le contenu.**
-
----
-
-## Mes inspirations
-
-- de snowflake
-  - blog post [intro snowflake dcm](https://www.snowflake.com/en/blog/snowflake-dcm-projects-public-preview/)
-  - [get started snowflake dcm](https://www.snowflake.com/en/developers/guides/get-started-snowflake-dcm-projects/?utm_campaign=Product&utm_content=1774386069&utm_medium=Snowflake%20Developers&utm_source=linkedin)
-- mes projets github
-  - [terraform snowflake](https://github.com/AntoineGiraud/terraform_snowflake)
-  - [streamlit snowflake démo](https://github.com/AntoineGiraud/streamlit_snowflake_demo)
-  - [dbt hypermarché](https://github.com/AntoineGiraud/dbt_hypermarche)
-
-## 1. Qu'est-ce que Snowflake DCM ?
-
-Un méli-mélo assumé de trois outils que tu connais déjà :
-
-| Brique | Ce que DCM en reprend |
-|--------|------------------------|
-| **Terraform** | Approche **déclarative** : tu décris l'état voulu, Snowflake calcule le delta (`PLAN`) puis l'applique (`DEPLOY`). Pas de provider externe ni de state file à héberger : l'état vit dans Snowflake (objet `DCM_PROJECT`). |
-| **Jinja** | **Templating** des définitions SQL (boucles `{% for %}`, variables `{{ }}`, macros) pour générer le RBAC par source et par équipe sans copier-coller. |
-| **dbt** | La **logique de macros + variables d'environnement** (`env_suffix`, `targets` DEV/PROD), et la séparation des responsabilités par couche. |
-
-> Feature en **public preview** : épingle ta version de Snowflake CLI, la syntaxe peut encore bouger.
-
-### Le modèle déclaratif, en clair
-
-À chaque `DEPLOY`, pour les objets **gérés par ce projet** :
-
-| État de l'objet | Action |
-|-----------------|--------|
-| Défini, n'existe pas | `CREATE` |
-| Défini, diffère du réel | `ALTER` |
-| Défini, identique | skip |
-| **Existe mais retiré du code** | **`DROP`** ⚠️ |
-
-Retirer un objet du SQL = le supprimer au prochain deploy. C'est voulu. **Toujours lire le `PLAN` avant de `DEPLOY`** (voir §5).
+Projet exploratoire sur **Snowflake DCM (Declarative Configuration Management)** pour la gestion des accès (RBAC) et définition as code du terrain de jeu dans lequel raffiner vos données.
 
 ---
 
-## 2. Le parti pris : DCM pour le RBAC, dbt pour les tables
+## 🏗️ Architecture déployée
 
-```
-┌─────────────────────────── DCM (ce repo) ───────────────────────────┐
-│  Stateless, rarement modifié                                          │
-│  • Warehouses (LOADING / TRANSFORMING / READING)                      │
-│  • Database BONCO                                                     │
-│  • Schémas (les CONTENANTS : BRONZE_*, SILVER_*, GOLD_*)               │
-│  • Rôles + hiérarchie + ownership                                     │
-│  • GRANTs, dont les `grant ... on FUTURE` (la clé, voir §4)           │
-└───────────────────────────────────────────────────────────────────────┘
-                                  │
-                  dbt crée tables/vues DANS ces schémas
-                                  ▼
-┌─────────────────────────── dbt (autre repo) ─────────────────────────┐
-│  Stateful, modifié en continu                                         │
-│  • TOUTES les tables, vues, dynamic tables                            │
-│  • Modèles stg_, int_, fct_, dim_                                     │
-└───────────────────────────────────────────────────────────────────────┘
-```
+L'architecture de ce projet s'articule autour de rôles fonctionnels clairs et d'une organisation des données en couches (Medallion Architecture).
 
-**Pourquoi cette frontière ?** Le `DROP` de DCM porte sur l'objet déclaré. Si une table était sous DCM et qu'on la retirait du code, DCM la dropperait (perte de données). En laissant **toute création de table à dbt**, DCM ne gère que des objets quasi sans état : dropper un warehouse ou un rôle est sans danger, recréer un schéma vide aussi. Le risque destructif est neutralisé par construction.
+![archi_data_medallion](./archi_data_medallion.png)
 
-⚠️ Seul objet DCM porteur de données indirectement : la **`DATABASE`** et les **schémas**. Ne jamais retirer un schéma du code tant qu'il contient des objets dbt vivants sans avoir lu le `PLAN`. Garder `DATA_RETENTION_TIME_IN_DAYS` > 0 (Time Travel) comme filet (`UNDROP`).
+### 👥 Rôles fonctionnels (personas)
 
----
+La hiérarchie des rôles est standardisée (cf. `setup.sql`) :
 
-## 3. Rôles, warehouses & responsabilités
+* **`LOADER`** : Chargé de l'ingestion des données brutes depuis les sources. Il possède les droits d'écriture sur les couches Bronze (et la création de stages/pipes).
+* **`TRANSFORMER`** : Chargé de la modélisation (ex: dbt). Il lit le Bronze et écrit dans les couches Silver et Gold.
+* **`READER`** : Rôle global (ou décliné par équipe métier) pour les utilisateurs finaux ou outils de BI. Il consomme la donnée valorisée en lecture seule.
 
-Trois warehouses, un par étage du flux de données :
+### 🗂️ Organisation des données
 
-| Warehouse | Rôle propriétaire d'usage | Qui s'en sert |
-|-----------|---------------------------|---------------|
-| `BONCO_LOADING_WH` | `BONCO_LOADER` | EL : ingestion brute (Fivetran, snowpipe, seeds) |
-| `BONCO_TRANSFORMING_WH` | `BONCO_TRANSFORMER` | **dbt** (build des modèles) |
-| `BONCO_READING_WH` | `BONCO_READER` + readers d'équipe | Consommation BI |
+La donnée est dynamiquement séparée en deux grands domaines via Jinja :
 
-Hiérarchie des rôles (héritage descendant des droits de lecture) :
+1. **Systèmes Sources (`BRONZE_*` / `SILVER_*`)** : Données alignées sur les systèmes d'origine (ex: `SAP`, `SALESFORCE`).
+* `BRONZE_<source>` : Données brutes telles qu'ingérées.
+* `SILVER_<source>` : Données nettoyées, castées et standardisées.
 
-```
-SYSADMIN
-└── BONCO_ADMIN
-    ├── BONCO_LOADER          → owner des schémas BRONZE_* (raw + manual inputs)
-    └── BONCO_TRANSFORMER     → owner des schémas SILVER_* / GOLD_*  (dbt tourne ici)
-        └── BONCO_READER      → SELECT global
-            ├── BONCO_CORE_READER
-            ├── BONCO_MARKETING_READER
-            ├── BONCO_OPERATIONS_READER
-            └── BONCO_FINANCE_READER   → SELECT cloisonné sur les schémas de l'équipe
-```
+2. **Équipes Métier (`SILVER_*` / `GOLD_*`)** : Données alignées sur les domaines de l'entreprise (ex: `FINANCE`, `MARKETING`).
+* `SILVER_<team>` : Données intermédiaires, jointes et dédoublonnées.
+* `GOLD_<team>` : Datamarts finaux (Dimensions et Faits) prêts à l'emploi.
 
 ---
 
-## 4. Architecture des schémas (medallion)
+## 🔄 Contexte : l'évolution du RBAC avec Snowflake
 
-Générée par boucle Jinja sur `sources` et `teams` ([sources/definitions/setup.sql](sources/definitions/setup.sql)).
+1. Actions **clic-bouton** dans l'UI ou scripts éparse, **rarement versionnés** et souvent en désynchronisé de l'existant.
+2. **Terraform** : l'outil de référence pour la gestion d'infrastructure as code (**IaC**).\
+  Snowflake a repris la main du provider dédié en 2025 avec une [v2](https://github.com/snowflakedb/terraform-provider-snowflake), mais est encore annoncée en GA.\
+  Les équipes doivent alors prendre le plis de cet outil (mapping, foreach, toSet, locals) pour bien implémenter son infra.\
+  ✍️ Snowflake guide [Terraforming Snowflake](https://www.snowflake.com/en/developers/guides/terraforming-snowflake/)\
+  ![terraforming_snowflake](./terraforming_snowflake.png)
+1. **[Permifrost](https://gitlab.com/gitlab-data/permifrost/)** (2021) : outil tiers en Python pour gérer le RBAC via  `yaml`. C'était une option intéressante, bien que moins connue dans la communauté.\
+  ✍️ [article medium](https://medium.com/yousign-engineering-product/snowflake-rbac-implementation-with-permifrost-3d30652825ad) - nov 2022 par Pascal Moreau\
+  ![permifrosting_snowflake](./permifrosting_snowflake.png)
+1. **➡️ Snowflake DCM** (2026) : La nouvelle solution native, déclarative as-code et accessible de par les languages employés (`yaml` & `sql`). Elle permet de déclarer son infrastructure et ses accès via des fichiers en y mêlant du **Jinja** (comme dans dbt).
 
-### Par source système (`SAP`, `SF`)
-| Schéma | Étage | Owner |
-|--------|-------|-------|
-| `BRONZE_<SRC>` | 🥉 Raw (données brutes ingérées telles quelles) | `LOADER` |
-| `SILVER_<SRC>` | 🥈 Staging (normalisé / typé) | `TRANSFORMER` |
 
-### Par équipe métier (`CORE`, `MARKETING`, `OPERATIONS`, `FINANCE`)
-| Schéma | Étage | Owner |
-|--------|-------|-------|
-| `BRONZE_MI_<TEAM>` | 🥉 Manual inputs bruts | `LOADER` |
-| `SILVER_MI_<TEAM>` | 🥈 Manual inputs staging | `TRANSFORMER` |
-| `SILVER_<TEAM>` | 🥈 Intermediate / Integration (modèles `int_`) | `TRANSFORMER` |
-| `GOLD_<TEAM>` | 🥇 Datamart : `fct_`, `dim_` | `TRANSFORMER` |
+## ⚖️ Vision : qui fait quoi ?
 
-### La pièce maîtresse : les `grant ... on FUTURE`
+DCM est très puissant et pourrait théoriquement tout faire (y compris créer des tables). Cependant, pour garder une stack maintenable, notre vision est de séparer strictement la gestion du "terrain de jeu" (db, schema, wh, role) de la gestion de la donnée elle-même.
 
-Dans les deux macros, chaque schéma reçoit :
-```sql
-grant select on all    <objets> in schema ... to role <reader>;
-grant select on future <objets> in schema ... to role <reader>;
-```
-C'est **le pont entre DCM et dbt** : DCM pré-accorde le `SELECT` sur les objets *futurs*. Quand dbt créera ensuite une table dans `GOLD_FINANCE`, le rôle `BONCO_FINANCE_READER` y aura accès **automatiquement**, sans nouveau deploy DCM. L'infra et le contenu restent découplés.
+| Domaine | Outil Recommandé | Rôle |
+| --- | --- | --- |
+| **Infra, Sécurité & RBAC** | `Snowflake DCM` | Définition du terrain de jeu : création des Warehouses, Databases, Schémas, Rôles et gouvernance globale via les droits d'accès. |
+| **Assets Data** | `dbt` | Création, transformation et cycle de vie des objets contenant la donnée au sein des schémas (Tables, Views, Materialized Views). |
+
+> **💡 Règle d'or :** Snowflake DCM délimite le terrain de jeu, construit les murs et distribue les clés. `dbt` fabrique et agence les meubles. C'est pour cela que DCM ne crée aucune table, mais délègue le `GRANT CREATE TABLE` au rôle `TRANSFORMER`.
 
 ---
 
-## 5. Commandes `snow dcm` utiles
+## 📂 Anatomie du projet
 
-> Toujours exécuter depuis le dossier contenant `manifest.yml`. La cible par défaut est `DEV` (`default_target` dans le manifest).
+La force de ce projet réside dans son aspect "DRY" (Don't Repeat Yourself) grâce à Jinja.
+
+* **`manifest.yml`** : Le cœur du réacteur. Il définit les environnements (`DEV`, `PROD`) et injecte les variables (listes des sources, listes des équipes).
+* **`sources/definitions/setup.sql`** : Le point d'entrée. Il boucle sur les variables du manifest pour créer à la volée tous les schémas et rôles nécessaires.
+* **`sources/macros/`** :
+  * `helpers_grants.sql` : Standardise la façon de donner les droits de lecture (`GRANT SELECT ON FUTURE...`) et d'écriture.
+  * `setup_source_layer.sql` & `setup_team_layer.sql` : Macros qui appliquent la logique métier pour chaque source ou équipe générée.
+* **`init_role_dcm_deployer.sql`** : Script d'amorçage.
+  * Création d'un rôle dcm_deployer recoupant les mandats des rôles snowflake `sysadmin` & `securityadmin`.
+  * Création d'un schéma infra.rbac_dcm hébergeant nos déploiements dcm.
+
+---
+
+## 🚀 Quickstart / déploiement
+
+### Étape 1 : Amorçage de la sécurité (une seule fois)
+
+Avant de lancer DCM, il faut créer un rôle dédié au déploiement (`DCM_DEPLOYER`), qui aura le privilège `MANAGE GRANTS` et les droits de créer les objets de haut niveau.
+Exécutez le script `init_role_dcm_deployer.sql` dans Snowflake avec le rôle `ACCOUNTADMIN`.
+
+### Étape 2 : Déploiement
+
+#### via l'UI Snowflake
+
+Depuis les workspaces Snowflake, on peut créer un projet DCM. Le mieux étant bien sûr de passer par git dans snowflake :). Cela ne ferait pas sérieux de ne pas versionner son IaC.
+
+#### via la CLI Snowflake
+
+Une fois le rôle de déploiement en place, utilisez la CLI native de Snowflake depuis votre terminal :
 
 ```bash
-# Créer l'objet DCM_PROJECT côté Snowflake (une fois par environnement)
+# 1. Créer l'objet projet dans Snowflake (à faire une fois par environnement)
 snow dcm create BONCO_INFRA --if-not-exists --target DEV
-snow dcm create BONCO_INFRA --if-not-exists --target PROD
 
-# 🔍 PLAN : dry-run, AUCUNE modif. À lire avant tout deploy.
+# 2. Prévisualiser les changements (Dry Run / Plan)
 snow dcm plan --target DEV
-snow dcm plan --target PROD --save-output          # sauvegarde le diff
-snow dcm plan --target DEV --variable "wh_size='XS'"   # override ponctuel
 
-# 🚀 DEPLOY : applique le delta
+# 3. Appliquer les changements sur le compte Snowflake
 snow dcm deploy --target DEV
-snow dcm deploy --target PROD --alias 'release rbac v1'    # nomme le déploiement
-
-# Inspection / nettoyage
-snow dcm list
-snow dcm describe BONCO_INFRA
-snow dcm drop BONCO_INFRA            # supprime l'objet projet (pas géré en routine)
 ```
-
-### Garde-fou recommandé en CI
-1. Sur PR : `snow dcm plan --target PROD --save-output`, publier le diff en commentaire.
-2. **Bloquer** le merge si le PLAN contient un `DROP DATABASE` ou `DROP SCHEMA` non approuvé (required reviewer / GitHub Environment protection).
-3. Sur merge `main` : `snow dcm deploy --target PROD`.
-
----
-
-## 6. Configuration (manifest.yml)
-
-| Élément | Rôle |
-|---------|------|
-| `targets.DEV` / `targets.PROD` | Un objet `DCM_PROJECT` distinct par environnement, même compte. |
-| `templating.defaults` | Valeurs partagées : `compagny`, `wh_size`, liste des `sources` et `teams`. |
-| `templating.configurations.<ENV>.env_suffix` | `_DEV` en dev, `""` en prod : suffixe bases/warehouses/rôles pour isoler les environnements. |
-
-Ajouter une source ou une équipe = **une ligne** dans `manifest.yml`, les schémas et grants se génèrent par boucle.
-
----
-
-## 7. Points à trancher (cohérence de nommage)
-
-Le code et la vision cible divergent légèrement. À aligner :
-
-- **Schémas sources** : le code crée `BRONZE_SAP` / `SILVER_SAP`. Si tu veux exposer l'étage dans le nom (`BRONZE_RAW_SAP`, `SILVER_STG_SAP`), adapte le template. Recommandation : garder court (`BRONZE_<SRC>`) puisque l'étage est déjà porté par le préfixe medallion.
-- **Couches équipe** : `SILVER_<TEAM>` joue le rôle de *silver intermediate*. Si tu préfères l'expliciter en `SILVER_INT_<TEAM>`, harmonise avec la convention `BRONZE_MI_` / `SILVER_MI_` déjà en place.
-- Décider et figer **une seule** convention avant le premier deploy PROD (un renommage de schéma post-prod = drop/recreate = perte des objets dbt dedans).
